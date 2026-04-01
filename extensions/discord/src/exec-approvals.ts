@@ -1,5 +1,7 @@
 import { getExecApprovalReplyMetadata } from "openclaw/plugin-sdk/approval-runtime";
+import { resolveApprovalApprovers } from "openclaw/plugin-sdk/approval-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
+import type { DiscordExecApprovalConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { resolveDiscordAccount } from "./accounts.js";
 import { parseDiscordTarget } from "./targets.js";
@@ -20,64 +22,62 @@ function normalizeDiscordApproverId(value: string): string | undefined {
   }
 }
 
-function collectDiscordInferredApprovers(params: {
-  cfg: OpenClawConfig;
-  accountId?: string | null;
-}): string[] {
-  const account = resolveDiscordAccount(params).config;
-  const inferred = new Set<string>();
-  for (const entry of [...(account.allowFrom ?? []), ...(account.dm?.allowFrom ?? [])]) {
-    const approverId = normalizeDiscordApproverId(String(entry));
-    if (approverId) {
-      inferred.add(approverId);
-    }
+function resolveDiscordOwnerApprovers(cfg: OpenClawConfig): string[] {
+  const ownerAllowFrom = cfg.commands?.ownerAllowFrom;
+  if (!Array.isArray(ownerAllowFrom) || ownerAllowFrom.length === 0) {
+    return [];
   }
-  const defaultTo = account.defaultTo?.trim();
-  if (defaultTo) {
-    try {
-      const target = parseDiscordTarget(defaultTo);
-      if (target?.kind === "user") {
-        inferred.add(target.id);
-      }
-    } catch {
-      // Ignore ambiguous default targets; explicit approvers or allowFrom still work.
-    }
-  }
-  return [...inferred];
+  return resolveApprovalApprovers({
+    explicit: ownerAllowFrom,
+    normalizeApprover: (value) => normalizeDiscordApproverId(String(value)),
+  });
 }
 
 export function getDiscordExecApprovalApprovers(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
+  configOverride?: DiscordExecApprovalConfig | null;
 }): string[] {
-  const config = resolveDiscordAccount(params).config.execApprovals;
-  const explicit = (config?.approvers ?? [])
-    .map((entry) => normalizeDiscordApproverId(String(entry)))
-    .filter((entry): entry is string => Boolean(entry));
-  if (explicit.length > 0) {
-    return [...new Set(explicit)];
-  }
-  return collectDiscordInferredApprovers(params);
+  return resolveApprovalApprovers({
+    explicit:
+      params.configOverride?.approvers ??
+      resolveDiscordAccount(params).config.execApprovals?.approvers ??
+      resolveDiscordOwnerApprovers(params.cfg),
+    normalizeApprover: (value) => normalizeDiscordApproverId(String(value)),
+  });
 }
 
 export function isDiscordExecApprovalClientEnabled(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
+  configOverride?: DiscordExecApprovalConfig | null;
 }): boolean {
-  const config = resolveDiscordAccount(params).config.execApprovals;
-  return Boolean(config?.enabled && getDiscordExecApprovalApprovers(params).length > 0);
+  const config = params.configOverride ?? resolveDiscordAccount(params).config.execApprovals;
+  return Boolean(
+    config?.enabled &&
+    getDiscordExecApprovalApprovers({
+      cfg: params.cfg,
+      accountId: params.accountId,
+      configOverride: params.configOverride,
+    }).length > 0,
+  );
 }
 
 export function isDiscordExecApprovalApprover(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
   senderId?: string | null;
+  configOverride?: DiscordExecApprovalConfig | null;
 }): boolean {
   const senderId = params.senderId?.trim();
   if (!senderId) {
     return false;
   }
-  return getDiscordExecApprovalApprovers(params).includes(senderId);
+  return getDiscordExecApprovalApprovers({
+    cfg: params.cfg,
+    accountId: params.accountId,
+    configOverride: params.configOverride,
+  }).includes(senderId);
 }
 
 export function shouldSuppressLocalDiscordExecApprovalPrompt(params: {
