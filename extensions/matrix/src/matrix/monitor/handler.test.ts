@@ -1873,7 +1873,7 @@ describe("matrix monitor handler block streaming config", () => {
     expect(capturedDisableBlockStreaming).toBe(true);
   });
 
-  it("disables shared block streaming when draft streaming is partial", async () => {
+  it("keeps block streaming disabled when partial previews are on and block streaming is off", async () => {
     let capturedDisableBlockStreaming: boolean | undefined;
 
     const { handler } = createMatrixHandlerTestHarness({
@@ -1894,7 +1894,7 @@ describe("matrix monitor handler block streaming config", () => {
     expect(capturedDisableBlockStreaming).toBe(true);
   });
 
-  it("keeps draft streaming authoritative when partial and block streaming are both enabled", async () => {
+  it("allows shared block streaming when partial previews and block streaming are both enabled", async () => {
     let capturedDisableBlockStreaming: boolean | undefined;
 
     const { handler } = createMatrixHandlerTestHarness({
@@ -1913,7 +1913,7 @@ describe("matrix monitor handler block streaming config", () => {
       createMatrixTextMessageEvent({ eventId: "$msg1", body: "hello" }),
     );
 
-    expect(capturedDisableBlockStreaming).toBe(true);
+    expect(capturedDisableBlockStreaming).toBe(false);
   });
 
   it("uses shared block streaming when explicitly enabled for Matrix", async () => {
