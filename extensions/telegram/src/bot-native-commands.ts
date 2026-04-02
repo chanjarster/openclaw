@@ -131,6 +131,27 @@ function isEditableTelegramProgressResult(result: ReplyPayload): boolean {
   );
 }
 
+async function cleanupTelegramProgressPlaceholder(params: {
+  bot: Bot;
+  chatId: number;
+  progressMessageId?: number;
+  runtime: RuntimeEnv;
+}): Promise<void> {
+  const progressMessageId = params.progressMessageId;
+  if (progressMessageId == null) {
+    return;
+  }
+  try {
+    await withTelegramApiErrorLogging({
+      operation: "deleteMessage",
+      runtime: params.runtime,
+      fn: () => params.bot.api.deleteMessage(params.chatId, progressMessageId),
+    });
+  } catch {
+    // Best-effort cleanup before fallback or suppression exits.
+  }
+}
+
 export type RegisterTelegramHandlerParams = {
   cfg: OpenClawConfig;
   accountId: string;
@@ -1008,43 +1029,52 @@ export const registerTelegramNativeCommands = ({
         });
 
         if (
-          !shouldSuppressLocalTelegramExecApprovalPrompt({
+          shouldSuppressLocalTelegramExecApprovalPrompt({
             cfg: runtimeCfg,
             accountId: route.accountId,
             payload: result,
           })
         ) {
-          const progressResultText =
-            typeof result.text === "string" && result.text.trim().length > 0 ? result.text : null;
-          if (
-            progressMessageId != null &&
-            telegramDeps.editMessageTelegram &&
-            progressResultText &&
-            isEditableTelegramProgressResult(result)
-          ) {
-            try {
-              await telegramDeps.editMessageTelegram(
-                chatId,
-                progressMessageId,
-                progressResultText,
-                {
-                  cfg: runtimeCfg,
-                  accountId: route.accountId,
-                  textMode: "markdown",
-                  linkPreview: runtimeTelegramCfg.linkPreview,
-                },
-              );
-              return;
-            } catch {
-              // Fall through to a normal delivered reply if editing fails.
-            }
-          }
-          await deliverReplies({
-            replies: [result],
-            ...deliveryBaseOptions,
-            silent: runtimeTelegramCfg.silentErrorReplies === true && result.isError === true,
+          await cleanupTelegramProgressPlaceholder({
+            bot,
+            chatId,
+            progressMessageId,
+            runtime,
           });
+          return;
         }
+
+        const progressResultText =
+          typeof result.text === "string" && result.text.trim().length > 0 ? result.text : null;
+        if (
+          progressMessageId != null &&
+          telegramDeps.editMessageTelegram &&
+          progressResultText &&
+          isEditableTelegramProgressResult(result)
+        ) {
+          try {
+            await telegramDeps.editMessageTelegram(chatId, progressMessageId, progressResultText, {
+              cfg: runtimeCfg,
+              accountId: route.accountId,
+              textMode: "markdown",
+              linkPreview: runtimeTelegramCfg.linkPreview,
+            });
+            return;
+          } catch {
+            // Fall through to cleanup + normal delivered reply if editing fails.
+          }
+        }
+        await cleanupTelegramProgressPlaceholder({
+          bot,
+          chatId,
+          progressMessageId,
+          runtime,
+        });
+        await deliverReplies({
+          replies: [result],
+          ...deliveryBaseOptions,
+          silent: runtimeTelegramCfg.silentErrorReplies === true && result.isError === true,
+        });
       });
     }
   } else if (nativeDisabledExplicit) {
