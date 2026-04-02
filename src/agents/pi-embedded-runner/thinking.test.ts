@@ -215,7 +215,7 @@ describe("wrapAnthropicStreamWithRecovery", () => {
     expect(callCount).toBe(2);
   });
 
-  it("retries once when the stream throws during iteration", async () => {
+  it("does not retry when the stream fails after yielding a chunk", async () => {
     let callCount = 0;
     const wrapped = wrapAnthropicStreamWithRecovery(
       (() => {
@@ -242,9 +242,9 @@ describe("wrapAnthropicStreamWithRecovery", () => {
       caughtError = error;
     }
 
-    expect(chunks).toEqual(["chunk", "chunk"]);
+    expect(chunks).toEqual(["chunk"]);
     expect(caughtError).toBe(anthropicThinkingError);
-    expect(callCount).toBe(2);
+    expect(callCount).toBe(1);
   });
 
   it("does not retry non-Anthropic-thinking errors", async () => {

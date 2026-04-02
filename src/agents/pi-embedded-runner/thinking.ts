@@ -235,13 +235,21 @@ async function* wrapAsyncIterableWithRecovery(
   sessionMeta: RecoverySessionMeta,
   retry: () => ReturnType<StreamFn>,
 ): AsyncGenerator {
+  let yieldedChunk = false;
   try {
     const resolved = stream instanceof Promise ? await stream : stream;
     for await (const chunk of resolved as AsyncIterable<unknown>) {
+      yieldedChunk = true;
       yield chunk;
     }
   } catch (error: unknown) {
     if (!shouldRecoverAnthropicThinkingError(error, sessionMeta)) {
+      throw error;
+    }
+    if (yieldedChunk) {
+      log.warn(
+        `[session-recovery] Anthropic thinking error occurred after streaming began; skipping retry to avoid duplicate chunks: sessionId=${sessionMeta.id}`,
+      );
       throw error;
     }
     sessionMeta.recoveredAnthropicThinking = true;
